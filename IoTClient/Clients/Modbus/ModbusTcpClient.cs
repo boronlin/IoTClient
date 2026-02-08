@@ -150,7 +150,7 @@ namespace IoTClient.Clients.Modbus
                 var conentResult = Connect();
                 if (!conentResult.IsSucceed)
                 {
-                    conentResult.Err = $"读取 地址:{address} 站号:{stationNumber} 功能码:{functionCode} 失败。{ conentResult.Err}";
+                    conentResult.Err = $"读取 地址:{address} 站号:{stationNumber} 功能码:{functionCode} 失败。{conentResult.Err}";
                     return result.SetErrInfo(conentResult);
                 }
             }
@@ -164,7 +164,7 @@ namespace IoTClient.Clients.Modbus
                 var sendResult = SendPackageReliable(command);
                 if (!sendResult.IsSucceed)
                 {
-                    sendResult.Err = $"读取 地址:{address} 站号:{stationNumber} 功能码:{functionCode} 失败。{ sendResult.Err}";
+                    sendResult.Err = $"读取 地址:{address} 站号:{stationNumber} 功能码:{functionCode} 失败。{sendResult.Err}";
                     return result.SetErrInfo(sendResult).EndTime();
                 }
                 var dataPackage = sendResult.Value;
@@ -199,7 +199,7 @@ namespace IoTClient.Clients.Modbus
                 }
                 else
                 {
-                    result.Err = $"读取 地址:{address} 站号:{stationNumber} 功能码:{functionCode} 失败。{ ex.Message}";
+                    result.Err = $"读取 地址:{address} 站号:{stationNumber} 功能码:{functionCode} 失败。{ex.Message}";
                 }
             }
             finally
@@ -1310,7 +1310,7 @@ namespace IoTClient.Clients.Modbus
         /// <param name="value">写入的值</param>
         /// <param name="stationNumber">站号</param>
         /// <param name="functionCode">功能码</param>
-        public Result Write(string address, short value, byte stationNumber = 1, byte functionCode = 16)
+        public Result Write(string address, short value, byte stationNumber = 1, byte functionCode = 6)
         {
             var values = BitConverter.GetBytes(value).Reverse().ToArray();
             return Write(address, values, stationNumber, functionCode);
@@ -1323,7 +1323,7 @@ namespace IoTClient.Clients.Modbus
         /// <param name="value">写入的值</param>
         /// <param name="stationNumber">站号</param>
         /// <param name="functionCode">功能码</param>
-        public Result Write(string address, ushort value, byte stationNumber = 1, byte functionCode = 16)
+        public Result Write(string address, ushort value, byte stationNumber = 1, byte functionCode = 6)
         {
             var values = BitConverter.GetBytes(value).Reverse().ToArray();
             return Write(address, values, stationNumber, functionCode);
@@ -1478,24 +1478,65 @@ namespace IoTClient.Clients.Modbus
         /// <returns></returns>
         public byte[] GetWriteCommand(string address, byte[] values, byte stationNumber, byte functionCode, byte[] check = null)
         {
+            // var writeAddress = ushort.Parse(address?.Trim());
+            // if (plcAddresses) writeAddress = (ushort)(Convert.ToUInt16(address?.Trim().Substring(1)) - 1);
+
+            // byte[] buffer = new byte[13 + values.Length];
+            // buffer[0] = check?[0] ?? 0x19;
+            // buffer[1] = check?[1] ?? 0xB2;//检验信息，用来验证response是否串数据了           
+            // buffer[4] = BitConverter.GetBytes(7 + values.Length)[1];
+            // buffer[5] = BitConverter.GetBytes(7 + values.Length)[0];//表示的是header handle后面还有多长的字节
+
+            // buffer[6] = stationNumber; //站号
+            // buffer[7] = functionCode;  //功能码
+            // buffer[8] = BitConverter.GetBytes(writeAddress)[1];
+            // buffer[9] = BitConverter.GetBytes(writeAddress)[0];//寄存器地址
+            // buffer[10] = (byte)(values.Length / 2 / 256);
+            // buffer[11] = (byte)(values.Length / 2 % 256);//写寄存器数量(除2是两个字节一个寄存器，寄存器16位。除以256是byte最大存储255。)              
+            // buffer[12] = (byte)(values.Length);          //写字节的个数
+            // values.CopyTo(buffer, 13);                   //把目标值附加到数组后面
+            // return buffer;
             var writeAddress = ushort.Parse(address?.Trim());
             if (plcAddresses) writeAddress = (ushort)(Convert.ToUInt16(address?.Trim().Substring(1)) - 1);
 
-            byte[] buffer = new byte[13 + values.Length];
-            buffer[0] = check?[0] ?? 0x19;
-            buffer[1] = check?[1] ?? 0xB2;//检验信息，用来验证response是否串数据了           
-            buffer[4] = BitConverter.GetBytes(7 + values.Length)[1];
-            buffer[5] = BitConverter.GetBytes(7 + values.Length)[0];//表示的是header handle后面还有多长的字节
+            // ==========================================
+            // 新增：针对功能码 06 (写单个保持寄存器) 的处理
+            // ==========================================
+            if (functionCode == 6)
+            {
+                // 校验：FC06 只能写 2 个字节 (1 个寄存器)
+                if (values == null || values.Length != 2)
+                    throw new ArgumentException($"功能码 06 写入数据长度必须为 2 字节，当前为 {values?.Length ?? 0}");
 
-            buffer[6] = stationNumber; //站号
-            buffer[7] = functionCode;  //功能码
-            buffer[8] = BitConverter.GetBytes(writeAddress)[1];
-            buffer[9] = BitConverter.GetBytes(writeAddress)[0];//寄存器地址
-            buffer[10] = (byte)(values.Length / 2 / 256);
-            buffer[11] = (byte)(values.Length / 2 % 256);//写寄存器数量(除2是两个字节一个寄存器，寄存器16位。除以256是byte最大存储255。)              
-            buffer[12] = (byte)(values.Length);          //写字节的个数
-            values.CopyTo(buffer, 13);                   //把目标值附加到数组后面
-            return buffer;
+                byte[] buffer = new byte[6];
+                buffer[0] = stationNumber; // 站号
+                buffer[1] = functionCode;  // 功能码 (06)
+                buffer[2] = (byte)(writeAddress >> 8);   // 地址高位
+                buffer[3] = (byte)(writeAddress & 0xFF); // 地址低位
+                buffer[4] = values[0];     // 值高位
+                buffer[5] = values[1];     // 值低位
+                return buffer;
+            }
+
+            // ==========================================
+            // 原有逻辑：针对功能码 16 (写多个保持寄存器)
+            // ==========================================
+            if (values.Length % 2 != 0)
+                throw new ArgumentException("写入数据的字节长度必须是偶数");
+
+            byte[] buffer16 = new byte[7 + values.Length];
+            buffer16[0] = stationNumber; // 站号
+            buffer16[1] = functionCode;  // 功能码 (通常是 16)
+            buffer16[2] = (byte)(writeAddress >> 8);
+            buffer16[3] = (byte)(writeAddress & 0xFF);
+
+            // 寄存器数量 = 字节数 / 2
+            buffer16[4] = (byte)(values.Length / 2 / 256);
+            buffer16[5] = (byte)(values.Length / 2 % 256);
+
+            buffer16[6] = (byte)(values.Length);          // 字节数
+            values.CopyTo(buffer16, 7);                   // 数据
+            return buffer16;
         }
 
         /// <summary>
